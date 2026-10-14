@@ -223,7 +223,11 @@ sup{font-size:.72em}
       <div class="s">式を思い出す練習。覚えたものは間隔をあけて、あやふやなものは翌日また出ます。</div>
     </button>
 
-    <button class="btn sec sm" id="mList" style="margin-top:4px">📖 公式一覧をながめる（全52枚）</button>
+    <div class="row" style="margin-top:4px">
+      <button class="btn sec sm" id="mDue">🔁 復習だけ <b id="cDue"></b></button>
+      <button class="btn sec sm" id="mNew">🆕 新規だけ <b id="cNew"></b></button>
+    </div>
+    <button class="btn sec sm" id="mList" style="margin-top:8px">📖 公式一覧をながめる（全52枚）</button>
   </div>
 
   <div class="card">
@@ -262,13 +266,18 @@ sup{font-size:.72em}
   <div class="card">
     <h2>学習履歴の保存・引き継ぎ</h2>
     <div class="syncstate" id="syncState">読み込み中…</div>
-    <button class="btn sec sm" id="btnPaste" style="margin-top:10px">📋 コピーした履歴をここに取り込む</button>
-    <div class="row" style="margin-top:8px">
-      <button class="btn sec sm" id="btnExport">履歴を書き出す</button>
-      <button class="btn sec sm" id="btnImportOpen">貼り付けて取り込む</button>
+    <div class="row" style="margin-top:10px">
+      <button class="btn sec sm" id="btnExportFile">📤 ファイルで書き出す</button>
+      <button class="btn sec sm" id="btnImportFile">📥 ファイルから取り込む</button>
     </div>
+    <input type="file" id="importFile" accept=".json,.txt,application/json,text/plain" style="display:none">
+    <div class="row" style="margin-top:8px">
+      <button class="btn sec sm" id="btnExport">履歴コードをコピー</button>
+      <button class="btn sec sm" id="btnPaste">コードを貼り付けて取り込む</button>
+    </div>
+    <button class="btn sec sm" id="btnImportOpen" style="margin-top:8px;opacity:.8">貼り付け欄を開く</button>
     <div id="importBox" class="hide" style="margin-top:10px">
-      <textarea id="importText" rows="4" placeholder="書き出した履歴（JSON）をここに貼り付け" style="width:100%;box-sizing:border-box;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px"></textarea>
+      <textarea id="importText" rows="4" placeholder="DK1. ではじまる履歴コード（または書き出したJSON）をここに貼り付け" style="width:100%;box-sizing:border-box;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px"></textarea>
       <button class="btn sec sm" id="btnImportGo" style="margin-top:8px">この内容を取り込む</button>
       <div class="legend">今の記録は消えません。両方が合わさります。</div>
     </div>
@@ -473,6 +482,10 @@ function renderHome(){
     :'本番と同じ50問140分。60点（30問正解）が合格ラインです。';
 
   renderChart(); renderPlan();
+  const dueN=QUESTIONS.filter(q=>qDue(q.id)).length+FORMULAS.filter(f=>fDue(f.id)).length;
+  const newN=QUESTIONS.filter(q=>qNew(q.id)).length+FORMULAS.filter(f=>fNew(f.id)).length;
+  if($('cDue')) $('cDue').textContent='（'+dueN+'件）';
+  if($('cNew')) $('cNew').textContent='（残り'+newN+'）';
   $('inExam').value=S.examDate; $('inMin').value=S.minutes; $('inGate').checked=(S.gate!==false);
 }
 /* ===== 試験までの計画 ===== */
@@ -485,22 +498,22 @@ function planModel(){
   const dates=[]; for(let d=new Date(d0); d<=ex && dates.length<120; d=addDays(d,1)) dates.push(new Date(d));
   if(!dates.length) dates.push(new Date(d0));
   const D=dates.length;
-  const finalN=D<=2?0:Math.min(3,Math.max(1,Math.round(D*0.25)));
-  const buildN=Math.max(1,D-finalN);
-  const priLeft=PRI_Q.filter(q=>qNew(q.id)).length;
-  const unseenQ=priLeft || QUESTIONS.filter(q=>qNew(q.id)).length;
+  // 未着手が残っている間は、試験当日を除く全日を新規の消化に使う（前日までに新規ゼロ）
+  const unseenQ=QUESTIONS.filter(q=>qNew(q.id)).length;
   const unseenF=FORMULAS.filter(f=>fNew(f.id)).length;
-  const perQ=Math.ceil(unseenQ/buildN), perF=Math.ceil(unseenF/buildN);
+  const priLeft=PRI_Q.filter(q=>qNew(q.id)).length;
+  const buildN=(unseenQ+unseenF)>0 ? Math.max(1,D-1) : 0;
+  const perQ=buildN?Math.ceil(unseenQ/buildN):0, perF=buildN?Math.ceil(unseenF/buildN):0;
   return dates.map((dt,i)=>{
     const k=iso(dt), left=D-1-i, isFinal=i>=buildN;
     let kind,label,n;
-    if(isFinal&&left===0){ kind='review'; label='総ざらい　誤答と公式だけ'; n=Math.max(20,Math.round(perQ*0.6)); }
+    if(left===0 && D>1){ kind='review'; label='総ざらい　誤答と公式だけ（新しい問題はなし）'; n=Math.max(20,QUESTIONS.filter(q=>S.cards[q.id]&&S.cards[q.id].lv<3).length); }
     else if(isFinal){ kind='mock'; label='本番モード 1回（50問・140分）＋誤答の復習'; n=50; }
-    else { kind='build'; label='新しい問題 '+perQ+'問　＋　公式 '+perF+'枚　＋　今日ぶんの復習'; n=perQ+perF; }
-    if(kind==='build' && priLeft) label+='（令和3年度以降を優先）';
+    else { kind='build'; label='新しい問題 '+perQ+'問'+(perF?'　＋　公式 '+perF+'枚':'')+'　＋　今日ぶんの復習'; n=perQ+perF; }
+    if(kind==='build' && priLeft) label+='（新しい年度から順に）';
     if(i===0){
       const due=QUESTIONS.filter(q=>qDue(q.id)).length+FORMULAS.filter(f=>fDue(f.id)).length;
-      if(due){ n+=due; if(kind==='build') label='復習 '+due+'件　＋　新しい問題 '+perQ+'問　＋　公式 '+perF+'枚'; }
+      if(due){ n+=due; if(kind==='build') label='復習 '+due+'件　＋　新しい問題 '+perQ+'問'+(perF?'　＋　公式 '+perF+'枚':''); }
     }
     return {date:k,d:dt,i:i,left:left,kind:kind,label:label,n:n,perQ:perQ,perF:perF,done:S.log[k]||0};
   });
@@ -517,7 +530,7 @@ function renderPlan(){
   $('planProg').innerHTML='今日の分　<b>'+t.done+'</b> / <b>'+t.n+'</b>';
   const restQ=QUESTIONS.filter(q=>qNew(q.id)).length;
   const priRest=PRI_Q.filter(q=>qNew(q.id)).length;
-  $('planPace').textContent = priRest? '重点 残り'+priRest+'問（全体 '+restQ+'）' : (restQ? '未着手 残り'+restQ+'問' : '全問に一度は触れました');
+  $('planPace').textContent = restQ? '未着手 残り'+restQ+'問' : '全問に一度は触れました';
   $('btnPlanGo').textContent = t.done>=t.n ? '今日の分は終わり（もう少しやる）' : '今日の分をはじめる';
   const todayK=iso(today());
   $('planTable').innerHTML='<table class="ptab">'+plan.map(x=>{
@@ -854,38 +867,130 @@ $('btnReset').onclick=()=>{
 })();
 
 $('btnPlanGo').onclick=startTodayPlan;
+$('mDue').onclick=()=>{
+  let q=QUESTIONS.filter(x=>qDue(x.id)).map(d=>({t:'q',d}));
+  let f=FORMULAS.filter(x=>fDue(x.id)).map(d=>({t:'f',d}));
+  let label='復習だけ';
+  if(!q.length&&!f.length){
+    // 今日が期限の復習が無いときは、まだ定着していないものを出す
+    q=QUESTIONS.filter(x=>S.cards[x.id]&&S.cards[x.id].lv<3).map(d=>({t:'q',d}));
+    f=FORMULAS.filter(x=>S.fcards[x.id]&&S.fcards[x.id].lv<3).map(d=>({t:'f',d}));
+    label='復習（まだ定着していないもの）';
+    if(!q.length&&!f.length){alert('復習が必要なものはありません。');return;}
+  }
+  start(shuffle(q).concat(shuffle(f)),{label:label});
+};
+$('mNew').onclick=()=>{
+  const pool=PRI_Q.some(q=>qNew(q.id))?PRI_Q:QUESTIONS;
+  const q=pool.filter(x=>qNew(x.id)).slice(0,40).map(d=>({t:'q',d}));
+  const f=FORMULAS.filter(x=>fNew(x.id)).slice(0,10).map(d=>({t:'f',d}));
+  if(!q.length&&!f.length){alert('新しい問題はもうありません。全問に一度は触れています。');return;}
+  let mix=[],qi=0,fi=0;
+  while(qi<q.length||fi<f.length){ for(let k=0;k<4&&qi<q.length;k++) mix.push(q[qi++]); if(fi<f.length) mix.push(f[fi++]); }
+  start(mix,{label:'新規だけ'});
+};
 $('btnPlanAll').onclick=()=>{ $('planTable').classList.toggle('hide'); };
 
 /* ===== 同期UI ===== */
-$('btnExport').onclick=()=>{
-  const t=JSON.stringify(S);
-  const ta=$('importText'); $('importBox').classList.remove('hide'); ta.value=t; ta.select();
-  try{ navigator.clipboard.writeText(t); alert('履歴をコピーしました。移したい端末で「履歴を取り込む」に貼り付けてください。'); }
-  catch(e){ alert('下の枠の文字をすべてコピーしてください。'); }
+// --- 履歴の短縮コード：DK1.（圧縮）/ DK0.（無圧縮）---
+const DAY0=Date.UTC(2026,0,1)/86400000;
+const d2n=d=>d?Math.round(Date.UTC(+d.slice(0,4),+d.slice(5,7)-1,+d.slice(8,10))/86400000-DAY0):null;
+const n2d=n=>{if(n==null)return null;const t=new Date((n+DAY0)*86400000);return t.getUTCFullYear()+'-'+String(t.getUTCMonth()+1).padStart(2,'0')+'-'+String(t.getUTCDate()).padStart(2,'0');};
+function packState(st){
+  const pc=o=>{const r={};for(const k in o){const c=o[k];r[k]=[c.lv||0,d2n(c.due),c.seen||0,c.ok||0,c.ng||0];}return r;};
+  return {v:1,e:st.examDate,m:st.minutes,g:st.gate===false?0:1,c:pc(st.cards||{}),f:pc(st.fcards||{}),
+          l:st.log||{},r:(st.recent||[]).slice(-500).map(x=>x?1:0).join(''),k:st.mocks||[],u:st.updatedAt||Date.now()};
+}
+function unpackState(p){
+  const uc=o=>{const r={};for(const k in o){const a=o[k];r[k]={lv:a[0],due:n2d(a[1]),seen:a[2],ok:a[3],ng:a[4]};}return r;};
+  return {examDate:p.e||DEFAULTS.examDate,minutes:p.m||60,gate:p.g!==0,cards:uc(p.c||{}),fcards:uc(p.f||{}),
+          log:p.l||{},recent:String(p.r||'').split('').map(x=>x==='1'),mocks:p.k||[],updatedAt:p.u||0};
+}
+const b64u=u8=>{let s='';const CH=0x8000;for(let i=0;i<u8.length;i+=CH)s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');};
+const unb64u=t=>{t=t.replace(/-/g,'+').replace(/_/g,'/');while(t.length%4)t+='=';const b=atob(t);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u;};
+async function pipeBytes(u8,stream){const rs=new Blob([u8]).stream().pipeThrough(stream);return new Uint8Array(await new Response(rs).arrayBuffer());}
+async function makeCode(){
+  const json=JSON.stringify(packState(S));
+  const raw=new TextEncoder().encode(json);
+  try{ if(typeof CompressionStream!=='undefined'){ return 'DK1.'+b64u(await pipeBytes(raw,new CompressionStream('deflate-raw'))); } }catch(e){}
+  return 'DK0.'+b64u(raw);
+}
+// どんな形で届いても読めるようにする（改行・空白・スマート引用符・前後の余計な文字に強く）
+async function readAny(text){
+  let t=String(text||'').trim();
+  const m=/DK([01])\.([A-Za-z0-9_\-\s]+)/.exec(t);
+  if(m){
+    const body=m[2].replace(/\s+/g,'');
+    let bytes;
+    try{ bytes=unb64u(body); }catch(e){ throw new Error('コードが途中で切れているか、文字が欠けています。'); }
+    let json;
+    try{
+      if(m[1]==='1'){
+        if(typeof DecompressionStream==='undefined') throw new Error('このブラウザは圧縮コードに対応していません。ファイルで取り込んでください。');
+        json=new TextDecoder().decode(await pipeBytes(bytes,new DecompressionStream('deflate-raw')));
+      } else json=new TextDecoder().decode(bytes);
+    }catch(e){ throw new Error(e.message&&e.message.indexOf('ブラウザ')>=0?e.message:'コードが途中で切れています。LINEなどで送ると長い文が切れることがあるので、「ファイルで書き出す」を使ってください。'); }
+    return unpackState(JSON.parse(json));
+  }
+  // 生のJSON（旧形式）
+  t=t.replace(/[“”„‟″＂]/g,'"').replace(/[‘’＇]/g,"'");
+  const a=t.indexOf('{'), b=t.lastIndexOf('}');
+  if(a<0||b<=a) throw new Error('履歴のデータが見つかりません。');
+  let o;
+  try{ o=JSON.parse(t.slice(a,b+1)); }catch(e){ throw new Error('データが途中で切れています。LINEなどで送ると長い文が切れることがあるので、「ファイルで書き出す」を使ってください。'); }
+  if(o&&o.s&&typeof o.s==='object') o=o.s;
+  if(o&&o.v===1&&o.c) return unpackState(o);
+  return o;
+}
+function applyImport(o){
+  if(!o||typeof o!=='object'||(!o.cards&&!o.fcards&&!o.log)){ alert('学習履歴の形になっていません。'); return false; }
+  const before=Object.keys(S.cards).length;
+  S=mergeStates(S,o); save(); renderHome();
+  const after=Object.keys(S.cards).length;
+  $('importBox').classList.add('hide'); $('importText').value='';
+  alert('取り込みました。\n問題の記録：'+before+'件 → '+after+'件（公式 '+Object.keys(S.fcards).length+'枚）');
+  return true;
+}
+async function importFromText(text){
+  try{ applyImport(await readAny(text)); }
+  catch(e){ alert('取り込めませんでした。\n'+(e&&e.message?e.message:'内容を確認してください。')); }
+}
+$('btnExportFile').onclick=async ()=>{
+  const code=await makeCode();
+  const d=new Date(), stamp=d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'-'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0');
+  const name='denki-rireki-'+stamp+'.txt';
+  const blob=new Blob([code],{type:'text/plain'});
+  try{
+    const file=new File([blob],name,{type:'text/plain'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:'電工1種 学習履歴'}); return; }
+  }catch(e){ if(e&&e.name==='AbortError') return; }
+  const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},4000);
+  alert('「'+name+'」を保存しました。移したい端末に送って「ファイルから取り込む」で読み込んでください。');
+};
+$('btnImportFile').onclick=()=>{ $('importFile').value=''; $('importFile').click(); };
+$('importFile').onchange=async e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; importFromText(await f.text()); };
+$('btnExport').onclick=async ()=>{
+  const code=await makeCode();
+  const ta=$('importText'); $('importBox').classList.remove('hide'); ta.value=code;
+  let ok=false;
+  try{ await navigator.clipboard.writeText(code); ok=true; }catch(e){}
+  if(!ok){ try{ ta.focus(); ta.select(); ta.setSelectionRange(0,code.length); ok=document.execCommand('copy'); }catch(e){} }
+  alert(ok?('履歴コードをコピーしました（'+code.length+'文字）。\n移したい端末の「コードを貼り付けて取り込む」で読み込んでください。\n※LINEで送る場合も、短いコードなので切れにくくなっています。')
+          :'下の枠の文字をすべてコピーしてください。');
 };
 $('btnImportOpen').onclick=()=>{ $('importBox').classList.toggle('hide'); $('importText').value=''; };
 $('btnPaste').onclick=async ()=>{
   let txt='';
-  try{ txt = await navigator.clipboard.readText(); }
-  catch(e){
+  try{ txt=await navigator.clipboard.readText(); }catch(e){}
+  if(!txt||!txt.trim()){
     $('importBox').classList.remove('hide'); $('importText').value=''; $('importText').focus();
-    alert('クリップボードを読めませんでした。下の枠を長押しして「貼り付け」→「この内容を取り込む」でお願いします。');
+    alert('クリップボードを読めませんでした。下の枠に貼り付けて「この内容を取り込む」を押してください。');
     return;
   }
-  if(!txt || !txt.trim()){ alert('クリップボードが空です。古いページで「これまでの履歴をコピー」を押してから、もう一度どうぞ。'); return; }
-  $('importText').value=txt.trim();
-  $('importBox').classList.remove('hide');
-  $('btnImportGo').click();
+  importFromText(txt);
 };
-$('btnImportGo').onclick=()=>{
-  let o=null;
-  try{ o=JSON.parse($('importText').value.trim()); }catch(e){ alert('うまく読み取れませんでした。貼り付けた内容を確認してください。'); return; }
-  if(o&&o.s&&typeof o.s==='object') o=o.s;
-  if(!o||typeof o!=='object'||(!o.cards&&!o.fcards&&!o.log)){ alert('学習履歴の形になっていません。'); return; }
-  S=mergeStates(S,o); save(); renderHome();
-  $('importBox').classList.add('hide'); $('importText').value='';
-  alert('取り込みました。');
-};
+$('btnImportGo').onclick=()=>importFromText($('importText').value);
 /* ===== このブラウザに保存（ログイン不要版） ===== */
 (function(){
   // 初回だけ、これまでの学習記録を引き継ぐ
@@ -896,7 +1001,7 @@ $('btnImportGo').onclick=()=>{
     }
   }catch(e){}
   const el=document.getElementById('syncState');
-  if(el){ el.textContent='このブラウザに自動保存しています。別の端末・別のブラウザに移すときは「履歴を書き出す」→移した先で「コピーした履歴をここに取り込む」。'; el.className='syncstate ok'; }
+  if(el){ el.textContent='このブラウザに自動保存しています。別の端末に移すときは「ファイルで書き出す」→移した先で「ファイルから取り込む」（またはコードをコピー→貼り付け）。'; el.className='syncstate ok'; }
   const h=document.getElementById('hdrSync'); if(h) h.textContent='\u{1F4BE} この端末に保存';
 })();
 </script>
