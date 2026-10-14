@@ -43,6 +43,11 @@ button{font-family:inherit;font-size:16px;cursor:pointer;border:none;border-radi
 .mode{display:block;width:100%;text-align:left;background:var(--panel2);border:1px solid var(--line);
   border-left:5px solid var(--accent);border-radius:12px;padding:14px;margin-bottom:10px;color:var(--fg)}
 .mode.train{border-left-color:var(--train)}
+.subrow{display:flex;gap:8px;margin:-4px 0 14px 5px}
+.subrow .sub{flex:1;background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:13px;font-weight:600;cursor:pointer}
+.subrow .sub b{font-weight:500;color:var(--dim)}
+.subrow.train .sub{border-color:#1e4f66}.subrow.home .sub{border-color:#4b3d75}.subrow.form .sub{border-color:#6b5414}
+.subrow .sub:active{background:var(--panel2)}
 .mode.home{border-left-color:var(--home)}
 .mode.form{border-left-color:var(--form)}
 .mode .t{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px}
@@ -212,22 +217,26 @@ sup{font-size:.72em}
       <div class="t">🚃 移動中モード <b id="cTrain"></b></div>
       <div class="s">計算のいらない暗記問題と公式カードだけ。電車・休憩中に片手でサクサク進められます。</div>
     </button>
+    <div class="subrow train"><button class="sub" id="mTrainDue">🔁 復習だけ <b id="cTrainDue"></b></button><button class="sub" id="mTrainNew">🆕 新規だけ <b id="cTrainNew"></b></button></div>
 
     <button class="mode home" id="mHome">
       <div class="t">🏠 じっくりモード <b id="cHome"></b></div>
       <div class="s">計算問題のみ。関連する公式カードが解説と一緒に出るので、紙とペンがある時にどうぞ。</div>
     </button>
+    <div class="subrow home"><button class="sub" id="mHomeDue">🔁 復習だけ <b id="cHomeDue"></b></button><button class="sub" id="mHomeNew">🆕 新規だけ <b id="cHomeNew"></b></button></div>
 
     <button class="mode form" id="mForm">
       <div class="t">📐 公式カード <b id="cForm"></b></div>
       <div class="s">式を思い出す練習。覚えたものは間隔をあけて、あやふやなものは翌日また出ます。</div>
     </button>
+    <div class="subrow form"><button class="sub" id="mFormDue">🔁 復習だけ <b id="cFormDue"></b></button><button class="sub" id="mFormNew">🆕 新規だけ <b id="cFormNew"></b></button></div>
 
-    <div class="row" style="margin-top:4px">
+    <div class="legend" style="margin:6px 0 4px">全部まとめて</div>
+    <div class="row">
       <button class="btn sec sm" id="mDue">🔁 復習だけ <b id="cDue"></b></button>
       <button class="btn sec sm" id="mNew">🆕 新規だけ <b id="cNew"></b></button>
     </div>
-    <button class="btn sec sm" id="mList" style="margin-top:8px">📖 公式一覧をながめる（全52枚）</button>
+    <button class="btn sec sm" id="mList" style="margin-top:8px">📖 公式一覧をながめる（全54枚）</button>
   </div>
 
   <div class="card">
@@ -485,6 +494,11 @@ function renderHome(){
   const dueN=QUESTIONS.filter(q=>qDue(q.id)).length+FORMULAS.filter(f=>fDue(f.id)).length;
   const newN=QUESTIONS.filter(q=>qNew(q.id)).length+FORMULAS.filter(f=>fNew(f.id)).length;
   if($('cDue')) $('cDue').textContent='（'+dueN+'件）';
+  const cnt=(qs,fs,fn)=>qs.filter(q=>fn==='due'?qDue(q.id):qNew(q.id)).length+fs.filter(f=>fn==='due'?fDue(f.id):fNew(f.id)).length;
+  [['Train',TRAIN_Q,FORMULAS],['Home',HOME_Q,[]],['Form',[],FORMULAS]].forEach(([k,qs,fs])=>{
+    if($('c'+k+'Due')) $('c'+k+'Due').textContent=cnt(qs,fs,'due');
+    if($('c'+k+'New')) $('c'+k+'New').textContent=cnt(qs,fs,'new');
+  });
   if($('cNew')) $('cNew').textContent='（残り'+newN+'）';
   $('inExam').value=S.examDate; $('inMin').value=S.minutes; $('inGate').checked=(S.gate!==false);
 }
@@ -880,6 +894,34 @@ $('mDue').onclick=()=>{
   }
   start(shuffle(q).concat(shuffle(f)),{label:label});
 };
+// モード別の「復習だけ」「新規だけ」
+function startScoped(qs,fs,kind,label,maxQ,maxF){
+  let q,f,lb=label+'・'+(kind==='due'?'復習だけ':'新規だけ');
+  if(kind==='due'){
+    q=qs.filter(x=>qDue(x.id)); f=fs.filter(x=>fDue(x.id));
+    if(!q.length&&!f.length){
+      q=qs.filter(x=>S.cards[x.id]&&S.cards[x.id].lv<3); f=fs.filter(x=>S.fcards[x.id]&&S.fcards[x.id].lv<3);
+      lb=label+'・復習（まだ定着していないもの）';
+      if(!q.length&&!f.length){alert('この範囲で復習が必要なものはありません。');return;}
+    }
+    q=shuffle(q); f=shuffle(f);
+  } else {
+    const pri=qs.filter(x=>examYear(x)>=2021&&qNew(x.id)), rest=qs.filter(x=>examYear(x)<2021&&qNew(x.id));
+    q=pri.concat(rest).slice(0,maxQ); f=fs.filter(x=>fNew(x.id)).slice(0,maxF);
+    if(!q.length&&!f.length){alert('この範囲の新しい問題はもうありません。');return;}
+  }
+  const qi=q.map(d=>({t:'q',d})), fi=f.map(d=>({t:'f',d}));
+  let mix=[],a=0,b=0;
+  if(!qi.length) mix=fi; else if(!fi.length) mix=qi;
+  else while(a<qi.length||b<fi.length){ for(let k=0;k<4&&a<qi.length;k++) mix.push(qi[a++]); if(b<fi.length) mix.push(fi[b++]); }
+  start(mix,{label:lb});
+}
+$('mTrainDue').onclick=()=>startScoped(TRAIN_Q,FORMULAS,'due','移動中');
+$('mTrainNew').onclick=()=>startScoped(TRAIN_Q,FORMULAS,'new','移動中',40,10);
+$('mHomeDue').onclick=()=>startScoped(HOME_Q,[],'due','じっくり');
+$('mHomeNew').onclick=()=>startScoped(HOME_Q,[],'new','じっくり',20,0);
+$('mFormDue').onclick=()=>startScoped([],FORMULAS,'due','公式カード');
+$('mFormNew').onclick=()=>startScoped([],FORMULAS,'new','公式カード',0,20);
 $('mNew').onclick=()=>{
   const pool=PRI_Q.some(q=>qNew(q.id))?PRI_Q:QUESTIONS;
   const q=pool.filter(x=>qNew(x.id)).slice(0,40).map(d=>({t:'q',d}));
